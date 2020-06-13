@@ -64,15 +64,29 @@ different variable names. I created mapping tables for the variables I’m
 interested in, so that it’s easy to look up “what was X question’s
 variable name in year Y?”
 
-Some things I’m learning: \* `dplyr` would rather you not use rownames,
-and instead convert into a regular column of names-as-characters \*
-`mutate_at()` lets you mutate everything usng a function, and specifying
-`vars(-$COLNAME)` applies that function to everything *except* the
-specified column (without the `-`, it only mutates the specified
-columns) \* it’s important to treat everything as characters rather than
-factors *\<– I wish I understood this more\!* \* `pull()` takes a column
-from a tibble and returns a
-vector
+Some things I’m learning:
+
+  - `dplyr` would rather you not use rownames, and instead convert into
+    a regular column of names-as-characters
+  - `mutate_at()` lets you mutate everything usng a function, and
+    specifying `vars(-$COLNAME)` applies that function to everything
+    *except* the specified column (without the `-`, it only mutates the
+    specified columns)
+  - it’s important to treat everything as characters rather than factors
+    *\<– I wish I understood this more\!*
+  - `pull()` takes a column from a tibble and returns a vector
+  - `:=` kets you use variables for column names (good when you’re
+    passing in those names from a list)
+  - `!!` expands an expression into a string (helpful to use in
+    conjunction with the above or below)
+  - You can add names into the elements of a vector (maybe called
+    [attributes](https://adv-r.hadley.nz/vectors-chap.html#attributes)?),
+    which produces something like a dictionary. One way is to create
+    your base vector `x`, and then assign names with `names(x) =
+    c($CHARACTER VECTOR WITH NAMES, SAME
+LENGTH)`
+
+<!-- end list -->
 
 ``` r
 twelve_core_mapping = read.csv(file = "MappingTables/12core1991-2018.csv",
@@ -125,9 +139,10 @@ require(haven) # lets us read SAS files
 require(stringr) # lets us subset a string using negative numbers
 
 # Choices I made here, that could be different:
-# * use every variable from the mapping tibble
-# * so far, not validating input.
-# * I convert year to a character, and always use it as a character. This is helpful since it's a column name, but maybe not intuitve when reading the code (you expect year to be a number)
+# A. use every variable from the mapping tibble
+# B. so far, not validating input.
+# C. I convert year to a character, and always use it as a character. This is helpful since it's a column name,
+# ...but maybe not intuitve when reading the code (you expect year to be a number)
 
 extract_demographics = function(path = path, years = years, mapping = mapping) {
   if (str_sub(path, -1) != "/") {
@@ -141,8 +156,7 @@ extract_demographics = function(path = path, years = years, mapping = mapping) {
     year = as.character(year)
     
     file_name = str_c(path, "y", year, "_1.sas7bdat")
-    #this_year_old_names = mapping[year]
-      
+
     # variables to include in select() and rename() statements
     included_variable_old_names = pull(filter(mapping[year], !!sym(year) != "."))
     included_variable_new_names = map_chr(.x = included_variable_old_names,
@@ -151,58 +165,49 @@ extract_demographics = function(path = path, years = years, mapping = mapping) {
                                           mapping = mapping
                                       )
 
-    # variables that didn't exist for this given year, so we'll add them in as all NA using mutate()
-    # QUESTION: is there a less-code way to do this? maybe somehow getting a list of all variables names, and then splitting on whether or not they're "."?
-    excluded_variable_old_names = pull(filter(mapping[year], !!sym(year) == "."))
-    excluded_variable_new_names = map_chr(.x = excluded_variable_old_names,
-                                          .f = col_rename,
-                                          year = year,
-                                          mapping = mapping
-                                      )
-
-    cat(paste(included_variable_new_names), "\n")
-    cat(paste(included_variable_old_names), "\n")
-    cat(paste(excluded_variable_new_names), "\n")
+    # NOTE: It's important that these two vectors retain ther order, so that the names are mapped correctly
+    # ...it seems like that's what's happening, but I don't know R well enough to feel confident in this.
+    rename_vector = included_variable_old_names
+    names(rename_vector) = included_variable_new_names
     
-    # form_id doesn't work -- why not?? look up v3 in codebook 2018
-    # question: should year and grade be integers? factors? characters?
+    # variables that didn't exist for this given year, so we'll add them in as all NA using mutate() later
+    excluded_variable_row_nums = which(mapping[year] == ".")
+    excluded_variable_new_names = mapping[excluded_variable_row_nums, 1]
+    
+    # QUESTION: is there a less-code way to do everything above? maybe somehow getting a list of all variables names,
+    # ...and then splitting on whether or not they're "."?
+
+    # QUESTION: should year and grade be integers? factors? characters?
+    
+    # What's happening in these piped functions:
+    # 1. Select all of the variables from our mapping table that existed for this year of the survey
+    # 2. Add in (mutate) columns for year and grade
+    # 3. rename varables from MTF names to standardized more descrptive names
     this_year_data = read_sas(data_file = file_name) %>% 
       select(.,
              one_of(included_variable_old_names)
              ) %>%
-      #rename_with(., tolower, .cols=("V3")) %>% 
-      # rename_all(.,
-      #            .funs = function(old_name) col_rename(old_name = old_name,
-      #                                                  year = year,
-      #                                                  mapping = mapping)
-      #            ) %>%
       mutate(.,
-             #year = year,
-             grade = 12,
-             )
-      # select(., 
-      #        gpa = as.character(mapping[["gpa", as.character(year)]])
-      #        )
-      # 
-      #       # sex = as.character(mapping[["sex", as.character(year)]]),
-             # race2 = as.character(mapping[["race2", as.character(year)]]),
-             # race3 = as.character(mapping[["race3", as.character(year)]]),
-             # dad_edu = as.character(mapping[["dad_edu", as.character(year)]]),
-             # mom_edu = as.character(mapping[["mom_edu", as.character(year)]]),
-             # gpa = as.character(mapping[["gpa", as.character(year)]]),
-             # weight = as.character(mapping[["weight", as.character(year)]])
-             #)
-    # %>% 
-    #   mutate(.,
-    #          a,
-    #          b,
-    #          c
-    #          )
+             year = as.integer(year),
+             grade = 12
+             ) %>%
+      rename(.,
+             !!rename_vector)
+    
+    ## NOTE: these for loops are ok, but I'm sure there's a way to do the same work using dplyr functions
+    # ...like rename_at(), mutate_at(), across(), etc. I just can't figure it out :(
+    
+    # 4. add in any variables that were excluded that year as NA (but did exist in other years of interest),
+    # ...so that the datasets can be stacked later
+    for (excluded_var_new in excluded_variable_new_names) {
+      this_year_data = mutate(this_year_data, !!excluded_var_new := NA)
+    }
 
-    # need to sort alphabetically before binding rows (or find a better way to combine data frames vertically, by comlumn name)
+    # QUESTION: is there a better way to combine data frames vertically, by comlumn name??
+    # need to sort alphabetically before binding rows
     this_year_data = this_year_data %>% select(sort(tidyselect::peek_vars()))
     
-    # will I have trouble with factors?
+    # QUESTON: will I have trouble with factors?
     demographics_all_years = bind_rows(demographics_all_years, this_year_data)
   }
   
@@ -210,26 +215,25 @@ extract_demographics = function(path = path, years = years, mapping = mapping) {
 }
 
 t1 = extract_demographics(path = "~/Documents/Code/MTF/MTFData/12th_grade/",
-                          years = 2018:2018,
+                          years = 2013:2018,
                           mapping = twelve_core_mapping)
+cat("Total number of rows:", nrow(t1))
 ```
 
-    ## id form_id weight sex race3 dad_edu mom_edu gpa 
-    ## RESPONDENT_ID V3 ARCHIVE_WT V2150 V2151 V2163 V2164 V2179 
-    ## race2
+    ## Total number of rows: 80549
 
 ``` r
 knitr::kable(head(t1))
 ```
 
-| ARCHIVE\_WT | grade | RESPONDENT\_ID | V2150 | V2151 | V2163 | V2164 | V2179 | V3 |
-| ----------: | ----: | -------------: | ----: | ----: | ----: | ----: | ----: | -: |
-|    1.608167 |    12 |          10001 |     1 |     2 |     6 |     5 |     9 |  1 |
-|    1.357766 |    12 |          10002 |     1 |     2 |     6 |     5 |     9 |  1 |
-|    1.546913 |    12 |          10003 |     1 |     2 |     6 |     5 |     7 |  1 |
-|    1.542995 |    12 |          10004 |     2 |   \-9 |     6 |     5 |     9 |  1 |
-|    1.451582 |    12 |          10005 |     1 |     2 |     6 |     6 |     8 |  1 |
-|    1.451481 |    12 |          10006 |     2 |     2 |     6 |     5 |     9 |  1 |
+| dad\_edu | form\_id | gpa | grade |    id | mom\_edu | race2 | race3 | sex | weight | year |
+| -------: | -------: | --: | ----: | ----: | -------: | :---- | ----: | --: | -----: | ---: |
+|        5 |        1 |   6 |    12 | 10001 |        3 | NA    |     1 |   2 | 0.7505 | 2013 |
+|        5 |        1 | \-9 |    12 | 10002 |        5 | NA    |     1 |   2 | 0.7240 | 2013 |
+|        5 |        1 |   6 |    12 | 10003 |        5 | NA    |     1 |   1 | 0.7607 | 2013 |
+|        3 |        1 |   9 |    12 | 10004 |        5 | NA    |     1 |   1 | 0.7912 | 2013 |
+|        2 |        1 |   7 |    12 | 10005 |        1 | NA    |   \-9 |   2 | 0.8291 | 2013 |
+|      \-9 |        1 |   8 |    12 | 10006 |      \-9 | NA    |     1 |   1 | 0.7601 | 2013 |
 
 *not sure if I’ll use this, but don’t delete yet*
 
